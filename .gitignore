@@ -1,0 +1,13 @@
+#dir
+data_dir_test
+__pycache__
+
+#file
+
+#ext
+*.log
+*.png
+*.jpg
+*.json
+*.h5
+*.txt
