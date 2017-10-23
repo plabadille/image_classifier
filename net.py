@@ -36,23 +36,23 @@ def build_model(nb_classes):
     return model
 
 
-def save(model, tags, prefix):
-    model.save_weights(prefix+".h5")
+def save(model, tags, prefix, sufix=""):
+    model.save_weights(prefix+sufix+".h5")
     # serialize model to JSON
     model_json = model.to_json()
-    with open(prefix+".json", "w") as json_file:
+    with open(prefix+sufix+".json", "w") as json_file:
         json_file.write(model_json)
-    with open(prefix+"-labels.json", "w") as json_file:
+    with open(prefix+sufix+"-labels.json", "w") as json_file:
         json.dump(tags, json_file)
 
 
-def load(prefix):
+def load(prefix, sufix=""):
     # load json and create model
-    with open(prefix+".json") as json_file:
+    with open(prefix+sufix+".json") as json_file:
         model_json = json_file.read()
     model = model_from_json(model_json)
     # load weights into new model
-    model.load_weights(prefix+".h5")
+    model.load_weights(prefix+sufix+".h5")
     with open(prefix+"-labels.json") as json_file:
         tags = json.load(json_file)
     return model, tags

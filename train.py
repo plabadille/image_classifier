@@ -1,4 +1,4 @@
-import sys
+import sys, os
 import datetime, time
 
 import numpy as np
@@ -24,9 +24,11 @@ supplied_args = sys.argv[1:]
 ## Filesystem const
 STARTED_DATETIME = datetime.datetime.now()
 DATA_DIRECTORY = supplied_args[0] if supplied_args else "data_dir"
-MODEL_PREFIX = "image-classifier_"
-MODEL_FOLDER_PATH = "save/"
-MODEL_FILE_FULL_PATH = MODEL_FOLDER_PATH + MODEL_PREFIX + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+MODEL_PREFIX = "image-classifier_" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+MODEL_FOLDER_PATH = "save/" + MODEL_PREFIX + "/"
+if not os.path.exists(MODEL_FOLDER_PATH):
+    os.makedirs(MODEL_FOLDER_PATH)
+MODEL_FILE_FULL_PATH = MODEL_FOLDER_PATH + MODEL_PREFIX
 ## Dataset const
 N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
@@ -149,8 +151,8 @@ model.fit(
     validation_data=(X_test, Y_test),
 )
 
-evaluate(model, "000.png")
-net.save(model, tags, MODEL_FILE_FULL_PATH)
+evaluate(model, MODEL_FILE_FULL_PATH + "_0.png")
+net.save(model, tags, MODEL_FILE_FULL_PATH, "_0")
 
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
 
@@ -191,9 +193,9 @@ for i in range(1,BIG_EPOCHS+1):
         epochs=EPOCHS,
         validation_data=(X_test, Y_test),
     )
-
-    evaluate(model, str(i).zfill(3)+".png")
-    net.save(model, tags, MODEL_FILE_FULL_PATH)
+    sufix = "_" + str(i)
+    evaluate(model, MODEL_FILE_FULL_PATH + sufix + ".png")
+    net.save(model, tags, MODEL_FILE_FULL_PATH, sufix)
 
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
 
