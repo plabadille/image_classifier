@@ -1,12 +1,17 @@
-import sys, os
+import sys, os, time
 import cv2
 from collections import defaultdict
 import numpy as np
+
+import logger
 
 def prep_data_with_cv2(filenames, n):
     processed_image_count = 0
     useful_image_count = 0
     
+    logger.log("Class images formating", 4)
+    images_start = time.time()
+
     images = []
     for filename in filenames:
         processed_image_count += 1
@@ -30,13 +35,22 @@ def prep_data_with_cv2(filenames, n):
         images.append(img)            
         useful_image_count += 1
 
+    logger.execution_time(images_start, "Class images formating", 4)
+    logger.log("Images transpose chan and to numpy", 4)
+    transpose_start = time.time()
+
     X = np.ndarray((useful_image_count, n, n, 3), dtype=np.uint8)  
     for i, image in enumerate(images):
         X[i] = image.T.transpose(1, 2, 0)
 
+    logger.execution_time(images_start, "Images transpose chan and to numpy", 4)
+
     return X, processed_image_count, useful_image_count
 
 def dataset(base_dir, n):
+    logger.log("Retrieving file object and class name from directory", 1)
+    dataset_start = time.time()
+
     d = defaultdict(list)
     for root, subdirs, files in os.walk(base_dir):
         for filename in files:
@@ -54,13 +68,26 @@ def dataset(base_dir, n):
 
     tags = sorted(d.keys())
 
+    logger.execution_time(dataset_start, "Retrieving file object and class name from directory", 1)
+    logger.log("Processing classes data", 1)
+    classes_start = time.time()
+    
     processed_image_count = 0
     useful_image_count = 0
     y_tmp = []
     for class_index, class_name in enumerate(tags):
+        logger.log("Processing data from class " + class_name, 2)
+        class_start = time.time()
+        
         filenames = d[class_name]
         
+        logger.log("Formating data" + class_name, 3)
+
         X_tmp, processed_image_count_tmp, useful_image_count_tmp = prep_data_with_cv2(filenames, n)
+
+        logger.execution_time(classes_start, "Formating data", 3)
+        numpy_start = time.time()
+        logger.log("Appending numpy class images to X", 3)
 
         if processed_image_count == 0:
             X = X_tmp
@@ -72,13 +99,22 @@ def dataset(base_dir, n):
         for i in range(0, useful_image_count_tmp):
             y_tmp.append(class_index)
 
+        logger.execution_time(numpy_start, "Appending numpy class images to X", 3)
+        logger.execution_time(class_start, "Processing data from class " + class_name, 2)
+
         processed_image_count += processed_image_count_tmp
         useful_image_count += useful_image_count_tmp
+
+    logger.log("X and Y permutation and Y to numpy", 2)
+    perm_start = time.time()
 
     y = np.array(y_tmp)
 
     perm = np.random.permutation(len(y))
     X = X[perm]
     y = y[perm]
+
+    logger.execution_time(perm_start, "X and Y permutation and Y to numpy", 2)
+    logger.execution_time(classes_start, "Processing classes data", 1)
 
     return X, y, tags
