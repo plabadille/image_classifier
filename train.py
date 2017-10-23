@@ -12,6 +12,8 @@ import scipy.misc
 from keras.optimizers import SGD
 from keras import backend as K
 from keras.utils import np_utils
+from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping
+
 
 import dataset
 import net
@@ -34,9 +36,10 @@ N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
 ## Training const
 BATCH_SIZE = 32
-EPOCHS = 2
-BIG_EPOCHS = 2
+EPOCHS = 15
+BIG_EPOCHS = 3
 PERCENT_OF_DATA_USED_FOR_TRAINING = 0.8
+EARLY_SOPPING_PATIENCE = 3
 
 #### Needed function ####
 
@@ -140,6 +143,11 @@ model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=["ac
 
 logger.execution_time(inception_start ,"Original InceptionV3 model loading", 0)
 
+## Early stopping if the validation loss doesn't decrease anymore
+filepath = MODEL_FILE_FULL_PATH + "_0.h5"
+early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
+model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
+
 #- Train the model on the new data for a few epochs then evaluate and save
 logger.log("Model first train, evaluation and save", 0)
 first_train_start = time.time()
@@ -149,8 +157,10 @@ model.fit(
     batch_size=BATCH_SIZE,
     epochs=EPOCHS,
     validation_data=(X_test, Y_test),
+    callbacks=[early_stopping, model_checkpoint]
 )
 
+model.load_weights(filepath)
 evaluate(model, MODEL_FILE_FULL_PATH + "_0.png")
 net.save(model, tags, MODEL_FILE_FULL_PATH, "_0")
 
@@ -186,17 +196,24 @@ for i in range(1,BIG_EPOCHS+1):
     print("mega-epoch %d/%d" % (i,BIG_EPOCHS))
     logger.log("Mega-epoch " + str(i), 2)
     big_epoch_start = time.time()
+    
+    sufix = "_" + str(i)
+    filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
+    model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
 
     model.fit(
         X_train, Y_train,
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
         validation_data=(X_test, Y_test),
+        callbacks=[early_stopping, model_checkpoint]
     )
-    sufix = "_" + str(i)
+    
+    ## We reload the best model
+    model.load_weights(filepath)   
     evaluate(model, MODEL_FILE_FULL_PATH + sufix + ".png")
     net.save(model, tags, MODEL_FILE_FULL_PATH, sufix)
-
+    
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
 
 logger.execution_time(second_train_start, "Second training", 1)
