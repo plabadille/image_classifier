@@ -81,7 +81,7 @@ def dataset(base_dir, n):
         
         filenames = d[class_name]
         
-        logger.log("Formating data" + class_name, 3)
+        logger.log("Formating data", 3)
 
         X_tmp, processed_image_count_tmp, useful_image_count_tmp = prep_data_with_cv2(filenames, n)
 
@@ -96,7 +96,7 @@ def dataset(base_dir, n):
 
         X_tmp = None #we let the garbage collector free the memory from it
 
-        for i in range(0, useful_image_count_tmp):
+        for i in range(useful_image_count_tmp):
             y_tmp.append(class_index)
 
         logger.execution_time(numpy_start, "Appending numpy class images to X", 3)

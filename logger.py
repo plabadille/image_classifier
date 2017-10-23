@@ -25,8 +25,8 @@ def seconds_to_time_string(seconds):
     return "%d:%02d:%02d" % (h, m, s)
 
 def datetime_difference_in_time_string(x, y):
-    delta = y-x
-    seconds = divmod(elapsedTime.total_seconds(), 60)
+    elapsedTime = y-x
+    seconds = elapsedTime.total_seconds()
     return seconds_to_time_string(seconds)
 
 #- Public functions

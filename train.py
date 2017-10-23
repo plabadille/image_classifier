@@ -30,7 +30,7 @@ N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
 ## Training const
 BATCH_SIZE = 32
-EPOCHS = 15
+EPOCHS = 2
 BIG_EPOCHS = 2
 PERCENT_OF_DATA_USED_FOR_TRAINING = 0.8
 
@@ -42,20 +42,24 @@ def evaluate(model, vis_filename=None):
 
     accuracy = float(np.sum(y_test==y_pred)) / len(y_test)
     print("accuracy:", accuracy)
+    logger.log("Model accuracy : " + str(accuracy), 3)
     
     confusion = np.zeros((classes_count, classes_count), dtype=np.int32)
     for (predicted_index, actual_index, image) in zip(y_pred, y_test, X_test):
         confusion[predicted_index, actual_index] += 1
     
     print("rows are predicted classes, columns are actual classes")
+    logger.log("Confusion Matrice :", 3)
     for predicted_index, predicted_tag in enumerate(tags):
         print(predicted_tag[:7])
+        logger.log(predicted_tag[:7], 3)
         for actual_index, actual_tag in enumerate(tags):
             print("\t%d" % confusion[predicted_index, actual_index])
+            logger.log("\t%d" % confusion[predicted_index, actual_index], 3)
         print()
     if vis_filename is not None:
         bucket_size = 10
-        image_size = n // 4 # right now that's 56
+        image_size = N // 4 # right now that's 56
         vis_image_size = classes_count * image_size * bucket_size
         vis_image = 255 * np.ones((vis_image_size, vis_image_size, CHANNELS), dtype='uint8')
         example_counts = defaultdict(int)
@@ -131,7 +135,7 @@ model = net.build_model(classes_count)
 model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=["accuracy"])
 
 logger.execution_time(inception_start ,"Original InceptionV3 model loading", 0)
-die()
+
 #- Train the model on the new data for a few epochs then evaluate and save
 logger.log("Model first train, evaluation and save", 0)
 first_train_start = time.time()
@@ -144,7 +148,7 @@ model.fit(
 )
 
 evaluate(model, "000.png")
-net.save(model, tags, model_file_prefix)
+net.save(model, tags, MODEL_FILE_PREFIX)
 
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
 
@@ -174,8 +178,8 @@ logger.execution_time(compile_start, "Recompiling the model to take our modifica
 logger.log("Second training", 1)
 second_train_start = time.time()
 
-for i in range(1,BIG_EPOCHS):
-    print("mega-epoch %d/%d" % i,BIG_EPOCHS)
+for i in range(1,BIG_EPOCHS+1):
+    print("mega-epoch %d/%d" % (i,BIG_EPOCHS))
     logger.log("Mega-epoch " + str(i), 2)
     big_epoch_start = time.time()
 
@@ -187,7 +191,7 @@ for i in range(1,BIG_EPOCHS):
     )
 
     evaluate(model, str(i).zfill(3)+".png")
-    net.save(model, tags, model_file_prefix)
+    net.save(model, tags, MODEL_FILE_PREFIX)
 
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
 
