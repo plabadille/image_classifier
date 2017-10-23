@@ -24,7 +24,9 @@ supplied_args = sys.argv[1:]
 ## Filesystem const
 STARTED_DATETIME = datetime.datetime.now()
 DATA_DIRECTORY = supplied_args[0] if supplied_args else "data_dir"
-MODEL_FILE_PREFIX = supplied_args[1] if len(supplied_args) >= 2 else "image-classifier_" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+MODEL_PREFIX = "image-classifier_"
+MODEL_FOLDER_PATH = "save/"
+MODEL_FILE_FULL_PATH = MODEL_FOLDER_PATH + MODEL_PREFIX + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 ## Dataset const
 N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
@@ -148,7 +150,7 @@ model.fit(
 )
 
 evaluate(model, "000.png")
-net.save(model, tags, MODEL_FILE_PREFIX)
+net.save(model, tags, MODEL_FILE_FULL_PATH)
 
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
 
@@ -191,7 +193,7 @@ for i in range(1,BIG_EPOCHS+1):
     )
 
     evaluate(model, str(i).zfill(3)+".png")
-    net.save(model, tags, MODEL_FILE_PREFIX)
+    net.save(model, tags, MODEL_FILE_FULL_PATH)
 
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
 
