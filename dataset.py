@@ -53,6 +53,9 @@ def dataset(base_dir, n):
 
     d = defaultdict(list)
     for root, subdirs, files in os.walk(base_dir):
+        #We exclude files in the base directory
+        if len(files) == 1 and os.path.isfile(os.path.join(base_dir, files[0])):
+            continue
         for filename in files:
             file_path = os.path.join(root, filename)
             assert file_path.startswith(base_dir)
@@ -85,7 +88,7 @@ def dataset(base_dir, n):
 
         X_tmp, processed_image_count_tmp, useful_image_count_tmp = prep_data_with_cv2(filenames, n)
 
-        logger.execution_time(classes_start, "Formating data", 3)
+        logger.execution_time(class_start, "Formating data", 3)
         numpy_start = time.time()
         logger.log("Appending numpy class images to X", 3)
 
