@@ -4,6 +4,8 @@ import datetime, time
 import numpy as np
 from collections import defaultdict
 
+from sklearn.cross_validation import StratifiedKFold
+
 # Loading tensorflow before scipy.misc seems to cause imread to fail #1541
 # https://github.com/tensorflow/tensorflow/issues/1541
 # Then we need to import it before Keras
@@ -36,11 +38,37 @@ MODEL_FILE_FULL_PATH = MODEL_FOLDER_PATH + MODEL_PREFIX
 N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
 ## Training const
-BATCH_SIZE = 32
+N_FOLDS = 3
+BATCH_SIZE = 32 #16
 EPOCHS = 15
 BIG_EPOCHS = 3
 PERCENT_OF_DATA_USED_FOR_TRAINING = 0.8
 EARLY_SOPPING_PATIENCE = 3
+
+#### Function ####
+
+## Callback for logging model results
+class modelTrends(Callback):
+    def on_epoch_end(self, epoch, logs={}):
+        print(logs)
+        log = "Epoch %s : Loss = %f, Val_loss = %f | Acc = %f, Val_acc = %f | Top-5-acc : %f, Val_top-5-acc : %f" % (epoch, logs['loss'], logs['val_loss'], logs['categorical_accuracy'], logs['val_categorical_accuracy'], logs['top_k_categorical_accuracy'], logs['val_top_k_categorical_accuracy'])
+        logger.log(log, 3)
+
+def train_model(model, X_train, Y_train, X_test, Y_test, tags, filepath):
+    ## Early stopping if the validation loss doesn't decrease anymore
+    early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
+    model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
+    model_trends = modelTrends()
+
+    model.fit(
+        X_train, Y_train,
+        batch_size=BATCH_SIZE,
+        epochs=EPOCHS,
+        validation_data=(X_test, Y_test),
+        callbacks=[early_stopping, model_checkpoint, model_trends]
+    )
+
+    model.load_weights(filepath)
 
 #### Script ####
 
@@ -50,18 +78,24 @@ logger.header()
 logger.log("Dataset gathering and formating", 0)
 dataset_start = time.time()
 
-X, y, tags = dataset.dataset(DATA_DIRECTORY, N)
+data, y, tags = dataset.dataset(DATA_DIRECTORY, N)
 
 classes_count = len(tags)
 sample_count = len(y)
 train_size = int(sample_count * PERCENT_OF_DATA_USED_FOR_TRAINING)
 
-X_train = X[:train_size]
-y_train = y[:train_size]
-Y_train = np_utils.to_categorical(y_train, classes_count)
-X_test  = X[train_size:]
-y_test  = y[train_size:]
-Y_test = np_utils.to_categorical(y_test, classes_count)
+labels =  np_utils.to_categorical(y, classes_count)
+
+# @see http://scikit-learn.org/0.17/modules/generated/sklearn.cross_validation.StratifiedKFold.html
+# @todo move to new version : http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
+skf = StratifiedKFold(y, n_folds=N_FOLDS, shuffle=True) 
+
+# X_train = X[:train_size]
+# y_train = y[:train_size]
+# Y_train = np_utils.to_categorical(y_train, classes_count)
+# X_test  = X[train_size:]
+# y_test  = y[train_size:]
+# Y_test = np_utils.to_categorical(y_test, classes_count)
 X, y = None, None # Performances cleanup (the value store in X are hudge)
 logger.execution_time(dataset_start ,"Dataset gathering and formating", 0)
 
@@ -74,33 +108,14 @@ model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=[met
 
 logger.execution_time(inception_start ,"Original InceptionV3 model loading", 0)
 
-## Early stopping if the validation loss doesn't decrease anymore
-filepath = MODEL_FILE_FULL_PATH + "_0.h5"
-early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
-model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
-
-## Callback for logging model results
-class modelTrends(Callback):
-    def on_epoch_end(self, epoch, logs={}):
-        print(logs)
-        log = "Epoch %s : Loss = %f, Val_loss = %f | Acc = %f, Val_acc = %f | Top-5-acc : %f, Val_top-5-acc : %f" % (epoch, logs['loss'], logs['val_loss'], logs['categorical_accuracy'], logs['val_categorical_accuracy'], logs['top_k_categorical_accuracy'], logs['val_top_k_categorical_accuracy'])
-        logger.log(log, 3)
-
 #- Train the model on the new data for a few epochs and save
 logger.log("Model first train, evaluation and save", 0)
 first_train_start = time.time()
-model_trends = modelTrends()
 
-model.fit(
-    X_train, Y_train,
-    batch_size=BATCH_SIZE,
-    epochs=EPOCHS,
-    validation_data=(X_test, Y_test),
-    callbacks=[early_stopping, model_checkpoint, model_trends]
-)
-
-model.load_weights(filepath)
-net.save(model, tags, MODEL_FILE_FULL_PATH, "_0")
+filepath = MODEL_FILE_FULL_PATH + "_0.h5"
+for i, (train, test) in enumerate(skf):
+    train_model(model, data[train], labels[train], data[test], labels[test], labels, filepath)
+net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
 
@@ -137,20 +152,11 @@ for i in range(1,BIG_EPOCHS+1):
     
     sufix = "_" + str(i)
     filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
-    model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
-    model_trends = modelTrends()
 
-    model.fit(
-        X_train, Y_train,
-        batch_size=BATCH_SIZE,
-        epochs=EPOCHS,
-        validation_data=(X_test, Y_test),
-        callbacks=[early_stopping, model_checkpoint, model_trends]
-    )
-    
-    ## We reload the best model
-    model.load_weights(filepath)   
-    net.save(model, tags, MODEL_FILE_FULL_PATH, sufix)
+    for i, (train, test) in enumerate(skf):
+        logger.log("Folds " + str(i), 3)
+        train_model(model, data[train], labels[train], data[test], labels[test], labels, filepath)
+    net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)
     
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
 
