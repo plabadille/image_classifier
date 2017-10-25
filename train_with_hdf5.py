@@ -1,6 +1,7 @@
 import sys, os
 import datetime, time
 import h5py
+import math
 
 import numpy as np
 from collections import defaultdict
@@ -57,6 +58,7 @@ BATCH_SIZE = 32 #16
 EPOCHS = 15
 BIG_EPOCHS = 3
 EARLY_SOPPING_PATIENCE = 2
+MAX_DATA_LOAD = 1000 #max data to load in memory at the same time
 
 #### Function ####
 
@@ -93,16 +95,44 @@ logger.header()
 logger.log("Dataset gathering and formating", 0)
 dataset_start = time.time()
 
-with h5py.File(HDF5_FULL_PATH, 'r') as f:
-    data = f['my_data'][()]
-    y = f['my_labels'][()]
 with open(TAGS_FULL_PATH, 'r') as f:
     tags = f.readline().strip().split(',')
+CLASSES_COUNT = len(tags)
 
-classes_count = len(tags)
-sample_count = len(y)
+#- We compute the value needed to load data in memory by batch depending on MAX_DATA_LOAD
+with h5py.File(HDF5_FULL_PATH, 'r') as f:
+    data_count = len(f['my_labels'][()])
 
-labels =  np_utils.to_categorical(y, classes_count)
+if MAX_DATA_LOAD >= data_count:
+    DATA_SPLIT = 0 
+else:
+    DATA_SPLIT = math.ceil(data_count / MAX_DATA_LOAD)
+    COUNT_SPLIT = data_count // DATA_SPLIT
+
+#- Generator to load data use after by cross_validation before training
+def load_data():
+    with h5py.File(HDF5_FULL_PATH, 'r') as f:
+        j=0
+        if DATA_SPLIT == 0:
+            data = f['my_data'][()]
+            y = f['my_labels'][()]
+
+            labels = np_utils.to_categorical(y, CLASSES_COUNT)
+            yield data, labels, y, j+1 
+        else:
+            for i in range(DATA_SPLIT):
+                if i == 0:
+                    data = f['my_data'][:COUNT_SPLIT]
+                    y = f['my_labels'][:COUNT_SPLIT]
+                elif i == DATA_SPLIT-1:
+                    data = f['my_data'][COUNT_SPLIT*i:]
+                    y = f['my_labels'][COUNT_SPLIT*i:]
+                else:
+                    data = f['my_data'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
+                    y = f['my_labels'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
+                    
+                labels = np_utils.to_categorical(y, CLASSES_COUNT)
+                yield data, labels, y, i+1
 
 # We use cross validation to increase the pertinence of our training and prevent it from generalizing
 # @see http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
@@ -115,7 +145,7 @@ logger.execution_time(dataset_start ,"Dataset gathering and formating", 0)
 logger.log("Original InceptionV3 model loading", 0)
 inception_start = time.time()
 
-model = net.build_model(classes_count)
+model = net.build_model(CLASSES_COUNT)
 model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=[metrics.categorical_accuracy, metrics.top_k_categorical_accuracy])
 
 logger.execution_time(inception_start ,"Original InceptionV3 model loading", 0)
@@ -126,9 +156,13 @@ first_train_start = time.time()
 
 filepath = MODEL_FILE_FULL_PATH + "_0.h5"
 #We use cross validation to train
-for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-    logger.log("Folds " + str(i), 2)
-    train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath)
+
+for data, labels, y, j in load_data():
+    logger.log("Part %s of the dataset" % j, 1)
+    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+        logger.log("Folds " + str(i), 2)
+        train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath)
+
 net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
@@ -167,10 +201,12 @@ for i in range(1,BIG_EPOCHS+1):
     sufix = "_" + str(i)
     filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
 
-    #we use cross validation to train
-    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-        logger.log("Folds " + str(i), 3)
-        train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath)
+    for data, labels, y, j in load_data():
+        logger.log("Part %s of the dataset" % j, 2)
+        #we use cross validation to train
+        for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+            logger.log("Folds " + str(i), 3)
+            train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath)
     net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)
     
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
