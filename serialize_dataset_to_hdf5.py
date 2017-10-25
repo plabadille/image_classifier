@@ -23,13 +23,14 @@ if not os.path.exists(DATASET_DIRECTORY):
 
 HDF5_FILENAME = supplied_args[1]
 HDF5_FULL_PATH = os.path.join(HDF5_DIRECTORY, HDF5_FILENAME + ".hdf5")
+LABELS_FULL_PATH = os.path.join(HDF5_DIRECTORY, HDF5_FILENAME + ".txt")
 
 if os.path.exists(HDF5_FULL_PATH):
     sys.exit("The file %s already exist" % HDF5_FULL_PATH)
 else:
     open(HDF5_FULL_PATH, 'a').close()
 
-def serialized_dataset(X, y, hdf5_full_path):
+def serialized_dataset(X, y, tags, hdf5_full_path):
     f = h5py.File(hdf5_full_path, 'w')
 
     # Creating dataset to store features
@@ -37,7 +38,9 @@ def serialized_dataset(X, y, hdf5_full_path):
     # Creating dataset to store labels
     y_dset = f.create_dataset('my_labels', data=y)
 
-    f.close()
+    #Creating text files to store tags
+    with open(LABELS_FULL_PATH, 'w+') as f:
+        f.write(','.join(tags))
 
 X, y, tags = dataset.dataset(DATASET_DIRECTORY, N)
-serialized_dataset(X, y, HDF5_FULL_PATH)  
+serialized_dataset(X, y, tags, HDF5_FULL_PATH)  
