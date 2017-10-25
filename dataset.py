@@ -47,10 +47,7 @@ def prep_data_with_cv2(filenames, n):
 
     return X, processed_image_count, useful_image_count
 
-def dataset(base_dir, n):
-    logger.log("Retrieving file object and class name from directory", 1)
-    dataset_start = time.time()
-
+def get_tags(base_dir):
     d = defaultdict(list)
     for root, subdirs, files in os.walk(base_dir):
         #We exclude files in the base directory
@@ -70,6 +67,14 @@ def dataset(base_dir, n):
             d[label].append(file_path)
 
     tags = sorted(d.keys())
+
+    return d, tags
+
+def dataset(base_dir, n):
+    logger.log("Retrieving file object and class name from directory", 1)
+    dataset_start = time.time()
+
+    d, tags = get_tags(base_dir)
 
     logger.execution_time(dataset_start, "Retrieving file object and class name from directory", 1)
     logger.log("Processing classes data", 1)
