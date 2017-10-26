@@ -1,3 +1,28 @@
+'''
+    This script will log usefull information
+
+    Usage : no direct call, used by train.py, train_with_hdf5.py and dataset.py.
+    -------
+
+    Main features :
+    ---------------
+        * Handle log level to get clear and readable log
+        * Have helpers to deal with date and execution time
+
+    Environment installation : Please refer to the README.md file.
+    --------------------------
+
+    Licence / feedback :
+    --------------------
+        Please feel free to reuse, ask me question or give me tips/comments. 
+        I'm not an expert and would love to have some feed back and advise.
+
+    @author Pierre Labadille
+    @date 10/26/2017
+    @version 1.0
+    @todo Update to InceptionV4
+'''
+
 import sys
 import time, datetime
 import itertools
