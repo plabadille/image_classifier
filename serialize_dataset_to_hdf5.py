@@ -1,8 +1,25 @@
-# @see https://gist.github.com/jfsantos/e2ef822c744357a4ed16ec0c885100a3
-# @see http://docs.h5py.org/en/latest/high/dataset.html#creating-datasets
+'''
+    This script will serialize a dataset (and labels) to a .HDF5 file. It's purpose is to be used before using the train_with_hdf5.py script.
+    There is two great advantage to used hdf5 to store your dataset :
+        * You just need to process your dataset once.
+        * You can choose how much data you want to load in memory (all or just part of it) which is usefull for large dataset.
+
+    Usage : $python serialized_dataset_to_hdf5 <dataset_to_serialized_directory> <HDF5 file name>
+    -------
+
+    Licence / feedback :
+    -------------
+        Please feel free to reuse, ask me question or give me tips/comments. 
+        I'm not an expert and would love to have some feed back and advise.
+
+    @author Pierre Labadille
+    @date 10/26/2017
+    @version 1.0
+    @todo Update to InceptionV4
+'''
 
 import sys, os
-import h5py
+import h5py # @see http://docs.h5py.org/en/latest/high/dataset.html#creating-datasets
 import numpy as np
 
 import dataset
