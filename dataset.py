@@ -1,3 +1,30 @@
+'''
+    This script will prepare a dataset to be use for training of a model. 
+
+    Usage : no direct call, use train.py or serialize_dataset_to_hdf5.py. If the dataset is big make sure you have enought RAM or SWAP available.
+    -------
+
+    Main features :
+    ---------------
+        * Smartly resize images from class to respect InceptionV3 normalization
+        * Transform Image file to Numpy Array
+        * Generate labels list
+        * Shuffle dataset
+
+    Environment installation : Please refer to the README.md file.
+    --------------------------
+
+    Licence / feedback :
+    --------------------
+        Please feel free to reuse, ask me question or give me tips/comments. 
+        I'm not an expert and would love to have some feed back and advise.
+
+    @author Pierre Labadille
+    @date 10/26/2017
+    @version 1.0
+    @todo Update to InceptionV4
+'''
+
 import sys, os, time
 import cv2
 from collections import defaultdict
