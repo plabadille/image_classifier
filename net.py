@@ -1,6 +1,17 @@
-# Please note this file is identical or nearly identical to https://github.com/danielvarga/keras-finetuning/blob/master/net.py
-# @author Daniel Varga
-# @link https://github.com/danielvarga/keras-finetuning
+'''
+    This script will give some usefull methods to load the original InceptionV3 model and to save/load trained model.
+
+    Usage : no direct call, used by train.py, train_with_hdf5.py.
+    -------
+    
+    IMPORTANT NOTE : Please note this file is identical or nearly identical to https://github.com/danielvarga/keras-finetuning/blob/master/net.py
+    ----------------
+
+    @author Daniel Varga
+    @link https://github.com/danielvarga/keras-finetuning
+    @date 08/31/2016
+    @todo Update to InceptionV4
+'''
 
 import json
 
