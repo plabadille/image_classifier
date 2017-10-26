@@ -1,3 +1,23 @@
+'''
+    This script will reduce the dataset in data_dir by the wanted numbers of features per class. It will not erase the data_dir dataset.
+
+    Usage : $python reduce_dataset.py <new data directory name> <sample per class wanted>
+    -------
+
+    Environment installation : Please refer to the README.md file.
+    --------------------------
+
+    Licence / feedback :
+    -------------
+        Please feel free to reuse, ask me question or give me tips/comments. 
+        I'm not an expert and would love to have some feed back and advise.
+
+    @author Pierre Labadille
+    @date 10/26/2017
+    @version 1.0
+    @todo Update to InceptionV4
+'''
+
 import sys, os
 from shutil import copyfile
 
