@@ -53,7 +53,7 @@ class modelTrends(Callback):
         logger.log(log, 3)
 
 ## Training function used by our cross_validation process.
-def train_model(model, X_train, Y_train, X_test, Y_test, filepath):
+def train_model(model, X_train, Y_train, X_test, Y_test, filepath, datagen):
     # Early stopping if the validation loss doesn't decrease anymore
     early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
     # We always keep the best model in case of early stopping
@@ -61,11 +61,16 @@ def train_model(model, X_train, Y_train, X_test, Y_test, filepath):
     # We record model trends for each epochs
     model_trends = modelTrends()
 
-    model.fit(
-        X_train, Y_train,
-        batch_size=BATCH_SIZE,
+    steps_per_epoch = len(X_train) // BATCH_SIZE if len(X_train) > BATCH_SIZE else len(X_train)
+    validation_steps = len(X_test) // BATCH_SIZE if len(X_test) > BATCH_SIZE else len(X_test)
+
+    # Datagen contain a data augmentation generator defined below on the script
+    model.fit_generator(
+        generator=datagen.flow(X_train, Y_train, batch_size=BATCH_SIZE, shuffle=True),
+        steps_per_epoch=steps_per_epoch,
         epochs=EPOCHS,
-        validation_data=(X_test, Y_test),
+        validation_data=datagen.flow(X_test, Y_test, batch_size=BATCH_SIZE),
+        validation_steps=validation_steps,
         callbacks=[early_stopping, model_checkpoint, model_trends]
     )
 
@@ -88,7 +93,22 @@ labels =  np_utils.to_categorical(y, classes_count)
 
 # We use cross validation to increase the pertinence of our training and prevent it from generalizing
 # @see http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
-skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True) 
+skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True)
+
+## We use a data generator to do data-augmentation
+datagen = ImageDataGenerator(
+    featurewise_center=False,
+    samplewise_center=False,
+    featurewise_std_normalization=False,
+    samplewise_std_normalization=False,
+    zca_whitening=False,
+    rotation_range=0,
+    width_shift_range=0.125,
+    height_shift_range=0.125,
+    horizontal_flip=True,
+    vertical_flip=False,
+    fill_mode='nearest',
+)
 
 X = None # Performances cleanup (the value store in X are hudge)
 logger.execution_time(dataset_start ,"Dataset gathering and formating", 0)
@@ -110,7 +130,7 @@ filepath = MODEL_FILE_FULL_PATH + "_0.h5"
 #We use cross validation to train
 for i, (train_index, test_index) in enumerate(skf.split(data, y)):
     logger.log("Folds " + str(i), 2)
-    train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath)
+    train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath, datagen)
 net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
@@ -152,7 +172,7 @@ for i in range(1,BIG_EPOCHS+1):
     #we use cross validation to train
     for i, (train_index, test_index) in enumerate(skf.split(data, y)):
         logger.log("Folds " + str(i), 3)
-        train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath)
+        train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath, datagen)
     net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)
     
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
