@@ -17,7 +17,24 @@ This is a neural network starter for **fine-tuning InceptionV3 model with Keras,
 
 ----------
 
-[TOC]
+- [**Image classifier**](#--image-classifier--)
+  * [Model results](#model-results)
+  * [Installation](#installation)
+      - [Install Anaconda](#install-anaconda)
+      - [Set up environment](#set-up-environment)
+      - [Install Tensorflow (tensorflow-gpu or tensorflow)](#install-tensorflow--tensorflow-gpu-or-tensorflow-)
+      - [Install Keras](#install-keras)
+      - [Install dependencies](#install-dependencies)
+      - [Clone the repository](#clone-the-repository)
+   * [Packages version used](#packages-version-used)
+   * [Quick start](#quick-start)
+      - [Training with a small dataset or really powerfull machin](#training-with-a-small-dataset-or-really-powerfull-machin)
+      - [Training with a big dataset or a really weak machin](#training-with-a-big-dataset-or-a-really-weak-machin)
+      - [Test your freshly computed model](#test-your-freshly-computed-model)
+  * [Recommendations](#recommendations)
+      - [Compute needed RAM/SWAP](#compute-needed-ram-swap)
+      - [Your dataset quality will reflect your model performances](#your-dataset-quality-will-reflect-your-model-performances)
+  * [Feedback](#feedback)
 
 ----------
 
