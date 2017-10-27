@@ -17,7 +17,7 @@ This is a neural network starter for **fine-tuning InceptionV3 model with Keras,
 
 ----------
 
-- [**Image classifier**](#--image-classifier--)
+- [**Image classifier**](#image-classifier)
   * [Model results](#model-results)
   * [Installation](#installation)
       - [Install Anaconda](#install-anaconda)
