@@ -43,6 +43,7 @@ from keras import backend as K
 from keras.utils import np_utils
 from keras import metrics
 from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping
+from keras.preprocessing.image import ImageDataGenerator
 
 import dataset
 import net
