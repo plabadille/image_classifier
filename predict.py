@@ -75,7 +75,7 @@ def get_n_max_value(array, n):
         max_index, max_value = max(enumerate(array), key=operator.itemgetter(1))
         max_array.append((max_index, max_value))
         if max_index != None:
-            del array[max_index]
+            array[max_index] = 0.0
 
     return max_array
 
@@ -91,12 +91,13 @@ images, count = prep_data(images_path)
 # We query the model to get it prediction
 predictions = model.predict(images, verbose=0)
 
+MAX_PREDICT_VALUE = 5 if len(labels) >= 5 else len(labels)
 # We print them for each pictures in a human readable format.
 for i, prediction in enumerate(predictions):
     filename = images_name[i]
     print("Predictions for image %s :" % filename)
 
-    top_n_predictions = get_n_max_value(prediction.tolist(), 5)
+    top_n_predictions = get_n_max_value(prediction.tolist(), MAX_PREDICT_VALUE)
 
     for label_index, prediction in top_n_predictions:
         print('* %s : %f' % (labels[label_index], prediction*100))
