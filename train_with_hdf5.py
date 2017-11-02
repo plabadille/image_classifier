@@ -37,7 +37,7 @@
 import sys, os
 import datetime, time
 import h5py
-import math
+import math, random
 
 from collections import defaultdict
 from sklearn.model_selection import StratifiedKFold
@@ -47,7 +47,7 @@ from keras import backend as K
 from keras.utils import np_utils
 from keras import metrics
 from keras.callbacks import ModelCheckpoint, Callback, EarlyStopping
-from keras.preprocessing.image import ImageDataGenerator
+from keras.preprocessing.image import ImageDataGenerator, NumpyArrayIterator
 
 import net
 import logger
@@ -95,50 +95,58 @@ if not os.path.exists(MODEL_FOLDER_PATH):
 
 
 ###################
+####   Class   ####
+###################
+
+# This is maybe not the best solution ever but I needed Keras ImageDataGenerator to take a batch generator to work fine with my configuration
+# It may be necessary to update this override if we change our Keras version
+# If Keras add a function for using generator in this generator, it will be a good idea to update to this version.
+# @see https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
+class CustomImageDataGenerator(ImageDataGenerator):
+    def flow(self, custom_batch_generator, batch_size=32, shuffle=True, seed=None, save_to_dir=None, save_prefix='', save_format='png'):
+        for x, y in custom_batch_generator:
+            return NumpyArrayIterator(
+                x, y, self,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                seed=seed,
+                data_format=self.data_format,
+                save_to_dir=save_to_dir,
+                save_prefix=save_prefix,
+                save_format=save_format
+            )
+
+###################
 #### Functions ####
 ###################
 
-## Callback for logging model trends by epoch
-class modelTrends(Callback):
-    def on_epoch_end(self, epoch, logs={}):
-        log = "Epoch %s : Loss = %f, Val_loss = %f | Acc = %f, Val_acc = %f | Top-5-acc : %f, Val_top-5-acc : %f" % (epoch, logs['loss'], logs['val_loss'], logs['categorical_accuracy'], logs['val_categorical_accuracy'], logs['top_k_categorical_accuracy'], logs['val_top_k_categorical_accuracy'])
-        logger.log(log, 3)
+## Return an skf seeded instance
+def new_kfold_seeded_instance():
+    ## We use cross validation to increase the pertinence of our training and prevent it from generalizing
+    # @see http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
+    # The seed is important here because we need to call to generator for validation and training.
+    # After each training session we just have to change the seed to rotate distribution.
+    seed = random.randrange(4294967295)
+    return StratifiedKFold(n_splits=N_SPLITS, shuffle=False, random_state=seed)
 
-## Training function used by our cross_validation process.
-def train_model(model, X_train, Y_train, X_test, Y_test, filepath, datagen):
-    # Early stopping if the validation loss (val_loss) doesn't decrease anymore
-    early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
-    # We always keep the best model in case of early stopping
-    model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
-    # We record model trends for each epochs using our custom callback
-    model_trends = modelTrends()
-
-    steps_per_epoch = len(X_train) // BATCH_SIZE if len(X_train) > BATCH_SIZE else len(X_train)
-    validation_steps = len(X_test) // BATCH_SIZE if len(X_test) > BATCH_SIZE else len(X_test)
-
-    # Datagen contain a data augmentation generator defined below on the script
-    model.fit_generator(
-        generator=datagen.flow(X_train, Y_train, batch_size=BATCH_SIZE, shuffle=True),
-        steps_per_epoch=steps_per_epoch,
-        epochs=EPOCHS,
-        validation_data=datagen.flow(X_test, Y_test, batch_size=BATCH_SIZE),
-        validation_steps=validation_steps,
-        callbacks=[early_stopping, model_checkpoint, model_trends]
-    )
-
-    # We reload the best epoch weight before keep going
-    model.load_weights(filepath)
-
-## Generator loading in memory a user defined quantity of data
-def load_data():
-    with h5py.File(HDF5_FULL_PATH, 'r') as f:
-        if DATA_SPLIT == 0:
+## Custom data generator using cross validation and loading only segmented part of dataset if needed
+def custom_batch_generator(skf, for_training=True):
+    if DATA_SPLIT == 0 or DATA_SPLIT == DATA_COUNT:
+        # Batch generator without data segmentation
+        with h5py.File(HDF5_FULL_PATH, 'r') as f:
             data = f['my_data'][()]
             y = f['my_labels'][()]
-
             labels = np_utils.to_categorical(y, CLASSES_COUNT)
-            yield data, labels, y, 1 
-        else:
+
+            if for_training: 
+                for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+                    yield data[train_index], labels[train_index]
+            else:
+                for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+                    yield data[test_index], labels[test_index]
+    else:
+        # Batch generator with data segmentation
+        with h5py.File(HDF5_FULL_PATH, 'r') as f:
             for i in range(DATA_SPLIT):
                 if i == 0:
                     data = f['my_data'][:COUNT_SPLIT]
@@ -151,7 +159,49 @@ def load_data():
                     y = f['my_labels'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
 
                 labels = np_utils.to_categorical(y, CLASSES_COUNT)
-                yield data, labels, y, i+1
+
+                if for_training: 
+                    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+                        yield data[train_index], labels[train_index]
+                else:
+                    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+                        yield data[test_index], labels[test_index]
+           
+
+## Callback for logging model trends by epoch
+class modelTrends(Callback):
+    def on_epoch_end(self, epoch, logs={}):
+        log = "Epoch %s : Loss = %f, Val_loss = %f | Acc = %f, Val_acc = %f | Top-5-acc : %f, Val_top-5-acc : %f" % (epoch, logs['loss'], logs['val_loss'], logs['categorical_accuracy'], logs['val_categorical_accuracy'], logs['top_k_categorical_accuracy'], logs['val_top_k_categorical_accuracy'])
+        logger.log(log, 3)
+
+## Training function used by our cross_validation process.
+def train_model(model, filepath, datagen, skf):
+    # Early stopping if the validation loss (val_loss) doesn't decrease anymore
+    early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
+    # We always keep the best model in case of early stopping
+    model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
+    # We record model trends for each epochs using our custom callback
+    model_trends = modelTrends()
+
+    test_sample_count = int((1/N_SPLITS) * DATA_COUNT)
+    validation_sample_count = DATA_COUNT - test_sample_count
+
+    steps_per_epoch = validation_sample_count // BATCH_SIZE if validation_sample_count > BATCH_SIZE else validation_sample_count
+    validation_steps = test_sample_count // BATCH_SIZE if test_sample_count > BATCH_SIZE else test_sample_count
+
+    # Datagen contain a data augmentation generator defined below on the script
+    # We hacked Keras ImageDataGenerator.flow to take batch_generator for our need. We describe why upper in the class method definition
+    model.fit_generator(
+        generator=datagen.flow(custom_batch_generator=custom_batch_generator(skf, for_training=True), batch_size=BATCH_SIZE, shuffle=True),
+        steps_per_epoch=steps_per_epoch,
+        epochs=EPOCHS,
+        validation_data=datagen.flow(custom_batch_generator=custom_batch_generator(skf, for_training=False), batch_size=BATCH_SIZE),
+        validation_steps=validation_steps,
+        callbacks=[early_stopping, model_checkpoint, model_trends]
+    )
+
+    # We reload the best epoch weight before keep going
+    model.load_weights(filepath)
 
 
 ################
@@ -166,32 +216,31 @@ with open(TAGS_FULL_PATH, 'r') as f:
 CLASSES_COUNT = len(tags)
 
 with h5py.File(HDF5_FULL_PATH, 'r') as f:
-    data_count = len(f['my_labels'][()])
+    DATA_COUNT = len(f['my_labels'][()])
 
-if MAX_DATA_LOAD >= data_count:
+if MAX_DATA_LOAD >= DATA_COUNT:
     DATA_SPLIT = 0 
 else:
-    DATA_SPLIT = math.ceil(data_count / MAX_DATA_LOAD)
-    COUNT_SPLIT = data_count // DATA_SPLIT
+    DATA_SPLIT = math.ceil(DATA_COUNT / MAX_DATA_LOAD)
+    COUNT_SPLIT = DATA_COUNT // DATA_SPLIT
 
 
-## We use cross validation to increase the pertinence of our training and prevent it from generalizing
-# @see http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
-skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True)
-
-## We use a data generator to do data-augmentation
-datagen = ImageDataGenerator(
-    featurewise_center=False,
-    samplewise_center=False,
-    featurewise_std_normalization=False,
-    samplewise_std_normalization=False,
-    zca_whitening=False,
-    rotation_range=0,
-    width_shift_range=0.125,
-    height_shift_range=0.125,
-    horizontal_flip=True,
-    vertical_flip=False,
-    fill_mode='nearest',
+## We use Keras data generator to do data-augmentation
+# The custom only redefine flow method to let us use a batch_generator instead of numpy array in it
+datagen = CustomImageDataGenerator(
+    ImageDataGenerator(
+        featurewise_center=False,
+        samplewise_center=False,
+        featurewise_std_normalization=False,
+        samplewise_std_normalization=False,
+        zca_whitening=False,
+        rotation_range=0,
+        width_shift_range=0.125,
+        height_shift_range=0.125,
+        horizontal_flip=True,
+        vertical_flip=False,
+        fill_mode='nearest',
+    )
 )
 
 
@@ -206,15 +255,8 @@ logger.log("Model first train, evaluation and save", 0)
 first_train_start = time.time()
 
 filepath = MODEL_FILE_FULL_PATH + "_0.h5"
-
-## Segmented dataset loop
-for data, labels, y, j in load_data():
-    logger.log("Part %s of the dataset" % j, 1)
-    # Cross validation loop
-    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-        logger.log("Folds " + str(i), 2)
-        # Custom train function defined upper using data-augmentation, early-stopping and model checkpoints
-        train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath, datagen)
+skf = new_kfold_seeded_instance()
+train_model(model, filepath, datagen, skf)
 
 net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
@@ -246,15 +288,9 @@ for i in range(1,BIG_EPOCHS+1):
     
     sufix = "_" + str(i)
     filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
+    skf = new_kfold_seeded_instance()
 
-    # Segmented dataset loop
-    for data, labels, y, j in load_data():
-        logger.log("Part %s of the dataset" % j, 2)
-        # Cross validation loop
-        for k, (train_index, test_index) in enumerate(skf.split(data, y)):
-            logger.log("Folds " + str(k), 3)
-            # Custom train function defined upper using data-augmentation, early-stopping and model checkpoints
-            train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath, datagen)
+    train_model(model, filepath, datagen, skf)
 
     # We save the best model for each Mega-Epoch        
     net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)
