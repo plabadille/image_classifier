@@ -127,6 +127,7 @@ def new_kfold_seeded_instance():
     # The seed is important here because we need to call to generator for validation and training.
     # After each training session we just have to change the seed to rotate distribution.
     seed = random.randrange(4294967295)
+    # The data are already shuffled in the dataset generation
     return StratifiedKFold(n_splits=N_SPLITS, shuffle=False, random_state=seed)
 
 ## Custom data generator using cross validation and loading only segmented part of dataset if needed
@@ -175,13 +176,31 @@ class modelTrends(Callback):
         logger.log(log, 3)
 
 ## Training function used by our cross_validation process.
-def train_model(model, filepath, datagen, skf):
+def train_model(model, filepath):
     # Early stopping if the validation loss (val_loss) doesn't decrease anymore
     early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
     # We always keep the best model in case of early stopping
     model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
     # We record model trends for each epochs using our custom callback
     model_trends = modelTrends()
+    # We use a hack (just to let it take generator instead of X,Y) Keras data generator to do data-augmentation
+    datagen = CustomImageDataGenerator(
+        ImageDataGenerator(
+            featurewise_center=False,
+            samplewise_center=False,
+            featurewise_std_normalization=False,
+            samplewise_std_normalization=False,
+            zca_whitening=False,
+            rotation_range=0,
+            width_shift_range=0.125,
+            height_shift_range=0.125,
+            horizontal_flip=True,
+            vertical_flip=False,
+            fill_mode='nearest',
+        )
+    )
+    # Cross Validation instance (seeded because we want to get the same things 2 time for validations/test)
+    skf = new_kfold_seeded_instance()
 
     test_sample_count = int((1/N_SPLITS) * DATA_COUNT)
     validation_sample_count = DATA_COUNT - test_sample_count
@@ -202,6 +221,8 @@ def train_model(model, filepath, datagen, skf):
 
     # We reload the best epoch weight before keep going
     model.load_weights(filepath)
+    # We clear stuff for memory safety
+    early_stopping=model_checkpoint=model_trends=datagen=skf = None
 
 
 ################
@@ -224,26 +245,6 @@ else:
     DATA_SPLIT = math.ceil(DATA_COUNT / MAX_DATA_LOAD)
     COUNT_SPLIT = DATA_COUNT // DATA_SPLIT
 
-
-## We use Keras data generator to do data-augmentation
-# The custom only redefine flow method to let us use a batch_generator instead of numpy array in it
-datagen = CustomImageDataGenerator(
-    ImageDataGenerator(
-        featurewise_center=False,
-        samplewise_center=False,
-        featurewise_std_normalization=False,
-        samplewise_std_normalization=False,
-        zca_whitening=False,
-        rotation_range=0,
-        width_shift_range=0.125,
-        height_shift_range=0.125,
-        horizontal_flip=True,
-        vertical_flip=False,
-        fill_mode='nearest',
-    )
-)
-
-
 #1# Original InceptionV3 model loading
 model = net.build_model(CLASSES_COUNT)
 model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=[metrics.categorical_accuracy, metrics.top_k_categorical_accuracy])
@@ -255,8 +256,7 @@ logger.log("Model first train, evaluation and save", 0)
 first_train_start = time.time()
 
 filepath = MODEL_FILE_FULL_PATH + "_0.h5"
-skf = new_kfold_seeded_instance()
-train_model(model, filepath, datagen, skf)
+train_model(model, filepath)
 
 net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
@@ -288,9 +288,8 @@ for i in range(1,BIG_EPOCHS+1):
     
     sufix = "_" + str(i)
     filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
-    skf = new_kfold_seeded_instance()
 
-    train_model(model, filepath, datagen, skf)
+    train_model(model, filepath)
 
     # We save the best model for each Mega-Epoch        
     net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)
