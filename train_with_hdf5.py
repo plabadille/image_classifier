@@ -95,28 +95,6 @@ if not os.path.exists(MODEL_FOLDER_PATH):
 
 
 ###################
-####   Class   ####
-###################
-
-# This is maybe not the best solution ever but I needed Keras ImageDataGenerator to take a batch generator to work fine with my configuration
-# It may be necessary to update this override if we change our Keras version
-# If Keras add a function for using generator in this generator, it will be a good idea to update to this version.
-# @see https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
-class CustomImageDataGenerator(ImageDataGenerator):
-    def flow(self, custom_batch_generator, batch_size=32, shuffle=True, seed=None, save_to_dir=None, save_prefix='', save_format='png'):
-        for x, y in custom_batch_generator:
-            return NumpyArrayIterator(
-                x, y, self,
-                batch_size=batch_size,
-                shuffle=shuffle,
-                seed=seed,
-                data_format=self.data_format,
-                save_to_dir=save_to_dir,
-                save_prefix=save_prefix,
-                save_format=save_format
-            )
-
-###################
 #### Functions ####
 ###################
 
@@ -131,7 +109,7 @@ def new_kfold_seeded_instance():
     return StratifiedKFold(n_splits=N_SPLITS, shuffle=False, random_state=seed)
 
 ## Custom data generator using cross validation and loading only segmented part of dataset if needed
-def custom_batch_generator(skf, for_training=True):
+def custom_batch_generator(skf, for_training=True, batch_size=16):
     if DATA_SPLIT == 0 or DATA_SPLIT == DATA_COUNT:
         # Batch generator without data segmentation
         with h5py.File(HDF5_FULL_PATH, 'r') as f:
@@ -139,35 +117,45 @@ def custom_batch_generator(skf, for_training=True):
             y = f['my_labels'][()]
             labels = np_utils.to_categorical(y, CLASSES_COUNT)
 
-            if for_training: 
-                for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-                    yield data[train_index], labels[train_index]
-            else:
-                for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-                    yield data[test_index], labels[test_index]
+            while 1:
+                if for_training: 
+                    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+                        for z in range(0, len(train_index), batch_size):
+                            yield data[train_index[z:z+batch_size]], labels[train_index[z:z+batch_size]]
+                        break
+                else:
+                    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
+                        for z in range(0, len(test_index), batch_size):
+                            yield data[test_index[z:z+batch_size]], labels[test_index[z:z+batch_size]]
+                        break
     else:
         # Batch generator with data segmentation
         with h5py.File(HDF5_FULL_PATH, 'r') as f:
-            for i in range(DATA_SPLIT):
-                if i == 0:
-                    data = f['my_data'][:COUNT_SPLIT]
-                    y = f['my_labels'][:COUNT_SPLIT]
-                elif i == DATA_SPLIT-1:
-                    data = f['my_data'][COUNT_SPLIT*i:]
-                    y = f['my_labels'][COUNT_SPLIT*i:]
-                else:
-                    data = f['my_data'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
-                    y = f['my_labels'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
+            while 1:
+                for i in range(DATA_SPLIT):
+                    logger.log("Dataset part %s - %s" % (i, "training" if for_training else "validation"))
+                    if i == 0:
+                        data = f['my_data'][:COUNT_SPLIT]
+                        y = f['my_labels'][:COUNT_SPLIT]
+                    elif i == DATA_SPLIT-1:
+                        data = f['my_data'][COUNT_SPLIT*i:]
+                        y = f['my_labels'][COUNT_SPLIT*i:]
+                    else:
+                        data = f['my_data'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
+                        y = f['my_labels'][COUNT_SPLIT*i:COUNT_SPLIT*(i+1)]
 
-                labels = np_utils.to_categorical(y, CLASSES_COUNT)
+                    labels = np_utils.to_categorical(y, CLASSES_COUNT)
 
-                if for_training: 
-                    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-                        yield data[train_index], labels[train_index]
-                else:
-                    for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-                        yield data[test_index], labels[test_index]
-           
+                    if for_training: 
+                        for y, (train_index, test_index) in enumerate(skf.split(data, y)):
+                            for z in range(0, len(train_index), batch_size):
+                                yield data[train_index[z:z+batch_size]], labels[train_index[z:z+batch_size]]
+                            break #it seem to have a bug in SKFold, instead of returning fold compose of (samples/N_Fold it return samples)
+                    else:
+                        for y, (train_index, test_index) in enumerate(skf.split(data, y)):
+                            for z in range(0, len(test_index), batch_size):
+                                yield data[test_index[z:z+batch_size]], labels[test_index[z:z+batch_size]]
+                            break #it seem to have a bug in SKFold, instead of returning fold compose of (samples/N_Fold it return samples)
 
 ## Callback for logging model trends by epoch
 class modelTrends(Callback):
@@ -183,38 +171,22 @@ def train_model(model, filepath):
     model_checkpoint = ModelCheckpoint(filepath=filepath, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
     # We record model trends for each epochs using our custom callback
     model_trends = modelTrends()
-    # We use a hack (just to let it take generator instead of X,Y) Keras data generator to do data-augmentation
-    datagen = CustomImageDataGenerator(
-        ImageDataGenerator(
-            featurewise_center=False,
-            samplewise_center=False,
-            featurewise_std_normalization=False,
-            samplewise_std_normalization=False,
-            zca_whitening=False,
-            rotation_range=0,
-            width_shift_range=0.125,
-            height_shift_range=0.125,
-            horizontal_flip=True,
-            vertical_flip=False,
-            fill_mode='nearest',
-        )
-    )
     # Cross Validation instance (seeded because we want to get the same things 2 time for validations/test)
     skf = new_kfold_seeded_instance()
 
-    test_sample_count = int((1/N_SPLITS) * DATA_COUNT)
-    validation_sample_count = DATA_COUNT - test_sample_count
+    validation_sample_count = int((1/N_SPLITS) * DATA_COUNT)
+    training_sample_count = DATA_COUNT - validation_sample_count
 
-    steps_per_epoch = validation_sample_count // BATCH_SIZE if validation_sample_count > BATCH_SIZE else validation_sample_count
-    validation_steps = test_sample_count // BATCH_SIZE if test_sample_count > BATCH_SIZE else test_sample_count
+    steps_per_epoch = training_sample_count // BATCH_SIZE if training_sample_count > BATCH_SIZE else training_sample_count
+    validation_steps = validation_sample_count // BATCH_SIZE if validation_sample_count > BATCH_SIZE else validation_sample_count
 
     # Datagen contain a data augmentation generator defined below on the script
     # We hacked Keras ImageDataGenerator.flow to take batch_generator for our need. We describe why upper in the class method definition
     model.fit_generator(
-        generator=datagen.flow(custom_batch_generator=custom_batch_generator(skf, for_training=True), batch_size=BATCH_SIZE, shuffle=True),
+        generator=custom_batch_generator(skf, for_training=True, batch_size=BATCH_SIZE),
         steps_per_epoch=steps_per_epoch,
         epochs=EPOCHS,
-        validation_data=datagen.flow(custom_batch_generator=custom_batch_generator(skf, for_training=False), batch_size=BATCH_SIZE),
+        validation_data=custom_batch_generator(skf, for_training=False, batch_size=BATCH_SIZE),
         validation_steps=validation_steps,
         callbacks=[early_stopping, model_checkpoint, model_trends]
     )
