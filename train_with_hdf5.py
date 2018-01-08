@@ -9,8 +9,7 @@
         * Fine-tuned InceptionV3
         * Log and multi-save model/weight systems
         * Only load segmented part of your dataset (you choose it) at the same time to avoid ram issue on large dataset.
-        * Cross validations to prevent overfitting
-        * Data augmentation to prevent underfitting
+        * Process hdf5 formated dataset
 
     Recommendations :
     -----------------
@@ -30,8 +29,9 @@
 
     @author Pierre Labadille
     @date 10/26/2017
-    @version 1.0
-    @todo Update to InceptionV4
+    @version 1.1
+    @todo Use Sequence instead of a python generator
+    @todo Add back data augmentation
 '''
 
 import sys, os
@@ -66,12 +66,12 @@ N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
 
 ## Training const
-N_SPLITS = 4 # the size of the test set will be 1/K (i.e. 1/n_splits), so you can tune that parameter to control the test size (e.g. n_splits=3 will have test split of size 1/3 = 33% of your data
-BATCH_SIZE = 32 #16
+BATCH_SIZE = 16 #16
 EPOCHS = 15
-BIG_EPOCHS = 3
+EPOCHS_FIRST = 7
+BIG_EPOCHS = 4
 EARLY_SOPPING_PATIENCE = 2
-MAX_DATA_LOAD = 30000 #max data to load in memory at the same time
+MAX_DATA_LOAD = 50000 #max data to load in memory at the same time
 
 ## Filesystem const
 HDF5_FOLDER = "serialized_datasets"
@@ -93,20 +93,9 @@ if not os.path.exists(TAGS_FULL_PATH):
 if not os.path.exists(MODEL_FOLDER_PATH):
     os.makedirs(MODEL_FOLDER_PATH)
 
-
 ###################
 #### Functions ####
 ###################
-
-## Return an skf seeded instance
-def new_kfold_seeded_instance():
-    ## We use cross validation to increase the pertinence of our training and prevent it from generalizing
-    # @see http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
-    # The seed is important here because we need to call to generator for validation and training.
-    # After each training session we just have to change the seed to rotate distribution.
-    seed = random.randrange(4294967295)
-    # The data are already shuffled in the dataset generation
-    return StratifiedKFold(n_splits=N_SPLITS, shuffle=False, random_state=seed)
 
 ## Custom data generator using cross validation and loading only segmented part of dataset if needed
 def custom_batch_generator(skf, for_training=True, batch_size=16):
@@ -164,7 +153,7 @@ class modelTrends(Callback):
         logger.log(log, 3)
 
 ## Training function used by our cross_validation process.
-def train_model(model, filepath):
+def train_model(model, X_train, Y_train, X_test, Y_test, filepath):
     # Early stopping if the validation loss (val_loss) doesn't decrease anymore
     early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
     # We always keep the best model in case of early stopping
@@ -172,29 +161,21 @@ def train_model(model, filepath):
     # We record model trends for each epochs using our custom callback
     model_trends = modelTrends()
     # Cross Validation instance (seeded because we want to get the same things 2 time for validations/test)
-    skf = new_kfold_seeded_instance()
-
-    validation_sample_count = int((1/N_SPLITS) * DATA_COUNT)
-    training_sample_count = DATA_COUNT - validation_sample_count
-
-    steps_per_epoch = training_sample_count // BATCH_SIZE if training_sample_count > BATCH_SIZE else training_sample_count
-    validation_steps = validation_sample_count // BATCH_SIZE if validation_sample_count > BATCH_SIZE else validation_sample_count
 
     # Datagen contain a data augmentation generator defined below on the script
     # We hacked Keras ImageDataGenerator.flow to take batch_generator for our need. We describe why upper in the class method definition
-    model.fit_generator(
-        generator=custom_batch_generator(skf, for_training=True, batch_size=BATCH_SIZE),
-        steps_per_epoch=steps_per_epoch,
-        epochs=EPOCHS,
-        validation_data=custom_batch_generator(skf, for_training=False, batch_size=BATCH_SIZE),
-        validation_steps=validation_steps,
+    model.fit(
+        X_train, Y_train,
+        batch_size=BATCH_SIZE,
+        epochs=EPOCHS_FIRST,
+        validation_data=(X_test, Y_test),
         callbacks=[early_stopping, model_checkpoint, model_trends]
     )
 
     # We reload the best epoch weight before keep going
     model.load_weights(filepath)
     # We clear stuff for memory safety
-    early_stopping=model_checkpoint=model_trends=datagen=skf = None
+    early_stopping=model_checkpoint=model_trends = None
 
 
 ################
@@ -217,6 +198,14 @@ else:
     DATA_SPLIT = math.ceil(DATA_COUNT / MAX_DATA_LOAD)
     COUNT_SPLIT = DATA_COUNT // DATA_SPLIT
 
+with h5py.File(HDF5_FULL_PATH, 'r') as f:
+    data = f['my_data'][()]
+    y = f['my_labels'][()]
+    labels = np_utils.to_categorical(y, CLASSES_COUNT)
+
+TRAIN_INDEX_STOP = int(0.7 * DATA_COUNT)
+TEST_INDEX_START = int(DATA_COUNT - TRAIN_INDEX_STOP)
+
 #1# Original InceptionV3 model loading
 model = net.build_model(CLASSES_COUNT)
 model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=[metrics.categorical_accuracy, metrics.top_k_categorical_accuracy])
@@ -228,7 +217,7 @@ logger.log("Model first train, evaluation and save", 0)
 first_train_start = time.time()
 
 filepath = MODEL_FILE_FULL_PATH + "_0.h5"
-train_model(model, filepath)
+train_model(model, data[:TRAIN_INDEX_STOP], labels[:TRAIN_INDEX_STOP], data[TEST_INDEX_START:], labels[TEST_INDEX_START:], filepath)
 
 net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
@@ -261,7 +250,7 @@ for i in range(1,BIG_EPOCHS+1):
     sufix = "_" + str(i)
     filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
 
-    train_model(model, filepath)
+    train_model(model, data[:TRAIN_INDEX_STOP], labels[:TRAIN_INDEX_STOP], data[TEST_INDEX_START:], labels[TEST_INDEX_START:], filepath)
 
     # We save the best model for each Mega-Epoch        
     net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)

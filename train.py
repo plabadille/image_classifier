@@ -9,8 +9,6 @@
         * Fine-tuned InceptionV3
         * Log and multi-save model/weight systems
         * Process raw dataset
-        * Cross validations to prevent overfitting
-        * Data augmentation to prevent underfitting
 
     Recommendations :
     -----------------
@@ -28,8 +26,9 @@
 
     @author Pierre Labadille
     @date 10/26/2017
-    @version 1.0
-    @todo Update to InceptionV4
+    @version 1.1
+    @todo Add Custom Generator to load batch with Sequence
+    @todo Add back data augmentation
 '''
 
 import sys, os
@@ -61,9 +60,9 @@ N = 224 #height/width for the images : InceptionV3 model require 224
 CHANNELS = 3
 
 ## Training const
-N_SPLITS = 4 # the size of the test set will be 1/K (i.e. 1/n_splits), so you can tune that parameter to control the test size (e.g. n_splits=3 will have test split of size 1/3 = 33% of your data
 BATCH_SIZE = 32 #16
 EPOCHS = 15
+EPOCHS_FIRST = 7
 BIG_EPOCHS = 3
 EARLY_SOPPING_PATIENCE = 2
 
@@ -88,7 +87,7 @@ class modelTrends(Callback):
         logger.log(log, 3)
 
 ## Training function used by our cross_validation process.
-def train_model(model, X_train, Y_train, X_test, Y_test, filepath, datagen):
+def train_model(model, X_train, Y_train, X_test, Y_test, filepath):
     # Early stopping if the validation loss doesn't decrease anymore
     early_stopping = EarlyStopping(monitor='val_loss', patience=EARLY_SOPPING_PATIENCE, verbose=1, mode='min')
     # We always keep the best model in case of early stopping
@@ -96,16 +95,12 @@ def train_model(model, X_train, Y_train, X_test, Y_test, filepath, datagen):
     # We record model trends for each epochs using our custom callback
     model_trends = modelTrends()
 
-    steps_per_epoch = len(X_train) // BATCH_SIZE if len(X_train) > BATCH_SIZE else len(X_train)
-    validation_steps = len(X_test) // BATCH_SIZE if len(X_test) > BATCH_SIZE else len(X_test)
-
     # Datagen contain a data augmentation generator defined below on the script
-    model.fit_generator(
-        generator=datagen.flow(X_train, Y_train, batch_size=BATCH_SIZE, shuffle=True),
-        steps_per_epoch=steps_per_epoch,
-        epochs=EPOCHS,
-        validation_data=datagen.flow(X_test, Y_test, batch_size=BATCH_SIZE),
-        validation_steps=validation_steps,
+    model.fit(
+        X_train, Y_train,
+        batch_size=BATCH_SIZE,
+        epochs=EPOCHS_FIRST,
+        validation_data=(X_test, Y_test),
         callbacks=[early_stopping, model_checkpoint, model_trends]
     )
 
@@ -127,27 +122,10 @@ data, y, tags = dataset.dataset(DATA_DIRECTORY, N)
 
 classes_count = len(tags)
 sample_count = len(y)
+TRAIN_INDEX_STOP = int(0.7 * sample_count)
+TEST_INDEX_START = int(sample_count - TRAIN_INDEX_STOP)
 
 labels =  np_utils.to_categorical(y, classes_count)
-
-## We use cross validation to increase the pertinence of our training and prevent it from generalizing
-# @see http://scikit-learn.org/stable/modules/generated/sklearn.model_selection.StratifiedKFold.html
-skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True)
-
-## We use a data generator to do data-augmentation
-datagen = ImageDataGenerator(
-    featurewise_center=False,
-    samplewise_center=False,
-    featurewise_std_normalization=False,
-    samplewise_std_normalization=False,
-    zca_whitening=False,
-    rotation_range=0,
-    width_shift_range=0.125,
-    height_shift_range=0.125,
-    horizontal_flip=True,
-    vertical_flip=False,
-    fill_mode='nearest',
-)
 
 logger.execution_time(dataset_start ,"Dataset gathering and formating", 0)
 
@@ -162,11 +140,7 @@ first_train_start = time.time()
 
 filepath = MODEL_FILE_FULL_PATH + "_0.h5"
 
-# Cross validation loop
-for i, (train_index, test_index) in enumerate(skf.split(data, y)):
-    logger.log("Folds " + str(i), 2)
-    # Custom train function defined upper using data-augmentation, early-stopping and model checkpoints
-    train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath, datagen)
+train_model(model, data[:TRAIN_INDEX_STOP], labels[:TRAIN_INDEX_STOP], data[TEST_INDEX_START:], labels[TEST_INDEX_START:], filepath)
 
 net.save(model, tags, MODEL_FILE_FULL_PATH + "_0")
 logger.execution_time(first_train_start ,"Model first train, evaluation and save", 0)
@@ -199,12 +173,9 @@ for i in range(1,BIG_EPOCHS+1):
     sufix = "_" + str(i)
     filepath = MODEL_FILE_FULL_PATH + sufix + ".h5"
 
-    # Cross validation loop
-    for j, (train_index, test_index) in enumerate(skf.split(data, y)):
-        logger.log("Folds " + str(j), 3)
-        # Custom train function defined upper using data-augmentation, early-stopping and model checkpoints
-        train_model(model, data[train_index], labels[train_index], data[test_index], labels[test_index], filepath, datagen)
-    
+    # Custom train function defined upper using data-augmentation, early-stopping and model checkpoints
+    train_model(model, data[:TRAIN_INDEX_STOP], labels[:TRAIN_INDEX_STOP], data[TEST_INDEX_START:], labels[TEST_INDEX_START:], filepath)
+
     # We save the best model for each Mega-Epoch 
     net.save(model, tags, MODEL_FILE_FULL_PATH + sufix)
     logger.execution_time(big_epoch_start, "Mega-epoch " + str(i), 2)
