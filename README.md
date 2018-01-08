@@ -179,9 +179,9 @@ python train_with_hdf5.py <hdf5_filename> #don't include the ext
 ```
 
 ### Test your freshly computed model
-Paste your test pictures into **image_classifier/data_dir_test/*** and run :
+Paste your test pictures into **image_classifier/data_to_predict/*** and run :
 ```bash
-python predict.py save/image_classifier_datetime_n 
+python predict.py save/image_classifier_datetime/image_classifier_datetime_n 
 #where n is the model number (0 is the first training, it is not pertinent. But each other one contain the best weight of each mega-epoch. Commonly you should use the last one)
 ```
 
